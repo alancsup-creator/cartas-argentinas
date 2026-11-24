@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Salón de Cartas</title>
+<style>
+:root{--bg:#f4f1ea;--fg:#1b1b1b;--pan:#fff;--mut:#666;--acc:#0a7d3c;--bd:#d8d3c6;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141816;--fg:#eee;--pan:#222824;--mut:#9aa8a0;--acc:#3ccf7a;--bd:#38413b}}
+:root[data-theme="dark"]{--bg:#141816;--fg:#eee;--pan:#222824;--mut:#9aa8a0;--acc:#3ccf7a;--bd:#38413b}
+body{margin:0;padding:12px;background:var(--bg);color:var(--fg);font:16px system-ui,sans-serif}
+h1{font-size:22px;margin:0 0 10px}h2{font-size:19px;margin:8px 0}
+.pan{background:var(--pan);border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:10px}
+input,select,button{font:inherit;padding:10px;border-radius:8px;border:1px solid var(--bd);background:var(--pan);color:var(--fg);margin:3px 0}
+button{background:var(--acc);color:#fff;border:0;font-weight:600;cursor:pointer}button.sec{background:var(--pan);color:var(--fg);border:1px solid var(--bd)}
+button:disabled{opacity:.5;cursor:default}.big{font-size:18px;padding:16px 20px;margin:4px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.hand{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.mut{color:var(--mut);font-size:14px}.me{outline:3px solid var(--acc)}
+.banner{font-weight:600}.banner.go,.win{background:var(--acc);color:#fff}.win{text-align:center;font-size:20px;font-weight:700}
+#toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:#222;color:#fff;padding:10px 14px;border-radius:10px;display:none;z-index:9;max-width:90%}
+.cd{--cw:58px;width:var(--cw);aspect-ratio:2/3;flex:none;position:relative;border-radius:7px;box-shadow:0 2px 5px rgba(0,0,0,.35);user-select:none;cursor:pointer;display:block;transition:transform .15s,box-shadow .15s}
+.cd svg{width:100%;height:100%;display:block;pointer-events:none}.cd.sel{box-shadow:0 0 0 3px #ffd400,0 6px 12px rgba(0,0,0,.45)}
+.fan{display:flex;justify-content:center;align-items:flex-end;padding:26px 6px 8px;min-height:120px}
+.fan .cd{--cw:62px;margin-left:var(--ml,-26px);transform:translateY(var(--y,0px)) rotate(var(--r,0deg));transform-origin:50% 170%;touch-action:pan-y}
+.fan .cd:first-child{margin-left:0}.fan .cd.sel{transform:translateY(-20px) rotate(0deg);z-index:30!important}
+.fan .cd.drag{transition:none;z-index:40!important;box-shadow:0 10px 18px rgba(0,0,0,.5)}
+.slot{width:58px;aspect-ratio:2/3;border:2px dashed var(--bd);border-radius:7px;display:block;box-sizing:border-box}.slot .cd{box-shadow:none}
+.stack{position:relative;width:78px;height:96px;margin:6px 0;border:2px dashed var(--bd);border-radius:8px;box-sizing:border-box}.stack .cd{--cw:50px;position:absolute}
+.bf{display:inline-flex;align-items:center;margin-top:3px}.bf i{display:inline-block;width:13px;height:19px;border-radius:3px;background:#0a7d3c;border:1px solid rgba(255,255,255,.55);box-shadow:0 1px 2px rgba(0,0,0,.4)}
+.hint{outline:3px solid #ffd400;animation:pl .8s infinite alternate}@keyframes pl{to{transform:translateY(-4px)}}
+.pop{animation:popk .9s 2}@keyframes popk{50%{transform:scale(1.15);filter:drop-shadow(0 0 8px #ffd400)}}
+</style></head><body>
+<h1>🃏 Salón de Cartas</h1>
+<div id="app"></div><div id="toast"></div>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+// Pegá acá la configuración de Firebase (solo hace falta para el modo online)
+const FIREBASE_CONFIG={apiKey:"PEGA_AQUI",authDomain:"PEGA_AQUI",projectId:"PEGA_AQUI",appId:"PEGA_AQUI"};
+const $=s=>document.querySelector(s),clone=o=>JSON.parse(JSON.stringify(o));
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const shuffle=a=>{for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
+const NUMS=[1,2,3,4,5,6,7,10,11,12],CN={10:"Sota",11:"Caballo",12:"Rey"},rk=n=>CN[n]||n;
+const SU=[["Oros","🟡","#b8860b"],["Copas","🏆","#c0392b"],["Espadas","🗡️","#1f4e9c"],["Bastos","🌿","#2e7d32"]];
+const deck40=()=>{const d=[];for(let s=0;s<4;s++)NUMS.forEach(n=>d.push(s+"."+n));return d};
+const pc=c=>c.split(".").map(Number);
+const nm=(g,id)=>(g.players.find(p=>p.id===id)||{}).name||"?";
+const lg=(g,t)=>{g.log=(g.log||[]).concat(t).slice(-5)};
+const COL=SU.map(x=>x[2]);
+function suitSvg(s,x,y,z){const t=`translate(${x} ${y}) scale(${z})`;
+  if(s===0)return `<g transform="${t}"><circle r="11" fill="#f4c542" stroke="#9a6b00" stroke-width="1.6"/><circle r="6.5" fill="none" stroke="#9a6b00" stroke-width="1.2"/><circle r="2.2" fill="#9a6b00"/></g>`;
+  if(s===1)return `<g transform="${t}"><path d="M-9,-10H9C9,0 5,6 0,6C-5,6-9,0-9,-10Z" fill="#d94a4a" stroke="#7a1d1d" stroke-width="1.5"/><rect x="-1.6" y="5" width="3.2" height="6" fill="#7a1d1d"/><ellipse cx="0" cy="12" rx="6.5" ry="2" fill="#7a1d1d"/></g>`;
+  if(s===2)return `<g transform="${t}"><path d="M0,-13L3.6,-9V6H-3.6V-9Z" fill="#cfd8e6" stroke="#2d4a85" stroke-width="1.4"/><rect x="-8" y="6" width="16" height="3" rx="1.2" fill="#2d4a85"/><rect x="-1.8" y="9" width="3.6" height="5" fill="#6b4a2b"/><circle cx="0" cy="15" r="2" fill="#2d4a85"/></g>`;
+  return `<g transform="${t} rotate(25)"><rect x="-3.6" y="-13" width="7.2" height="26" rx="3.6" fill="#8a5a2b" stroke="#4a2f12" stroke-width="1.4"/><circle cx="0" cy="-5" r="1.6" fill="#4a2f12"/><circle cx="0" cy="4" r="1.6" fill="#4a2f12"/><path d="M3.6,-9q6,-2 7,4q-5,0 -7,-4z" fill="#3b8a3b"/></g>`}
+const PIPS={1:[[30,45]],2:[[30,25],[30,65]],3:[[30,22],[30,45],[30,68]],4:[[19,26],[41,26],[19,64],[41,64]],5:[[19,26],[41,26],[30,45],[19,64],[41,64]],6:[[19,24],[41,24],[19,45],[41,45],[19,66],[41,66]],7:[[19,24],[41,24],[30,34],[19,45],[41,45],[19,66],[41,66]]};
+const FIG={10:["♟","SOTA"],11:["♞","CABALLO"],12:["♚","REY"]},FC={};
+function face(c){if(FC[c])return FC[c];const[s,n]=pc(c),col=COL[s];let g="";
+  if(n<=7){const z=n===1?1.9:n<=3?.95:.72;g=PIPS[n].map(([x,y])=>suitSvg(s,x,y,z)).join("")}
+  else g=`<rect x="11" y="24" width="38" height="44" rx="4" fill="${col}" fill-opacity=".12" stroke="${col}" stroke-width="1.4"/><text x="30" y="52" font-size="26" text-anchor="middle" fill="${col}" font-family="serif">${FIG[n][0]}</text><text x="30" y="62" font-size="5.5" font-weight="700" text-anchor="middle" fill="${col}" font-family="system-ui,sans-serif">${FIG[n][1]}</text>`+suitSvg(s,30,33,.45);
+  const cr=`<text x="6" y="15" font-size="12" font-weight="700" fill="${col}" font-family="system-ui,sans-serif">${n}</text>`+suitSvg(s,10,24,.38);
+  return FC[c]=`<svg viewBox="0 0 60 90"><rect x=".75" y=".75" width="58.5" height="88.5" rx="6" fill="#fffdf3" stroke="#6d6247" stroke-width="1.2"/>${cr}<g transform="rotate(180 30 45)">${cr}</g>${g}</svg>`}
+const BACKSVG=`<svg viewBox="0 0 60 90"><rect x=".75" y=".75" width="58.5" height="88.5" rx="6" fill="#0a7d3c" stroke="#fff" stroke-width="2"/><rect x="5" y="5" width="50" height="80" rx="3" fill="none" stroke="#9be3b6" stroke-width="1"/><g stroke="#9be3b6" stroke-width=".8" opacity=".7">${Array.from({length:9},(_,i)=>`<path d="M${5+i*6},5L5,${5+i*6}M55,${85-i*6}L${55-i*6},85"/>`).join("")}</g><circle cx="30" cy="45" r="11" fill="#f4c542" stroke="#9a6b00" stroke-width="1.4"/><circle cx="30" cy="45" r="6" fill="none" stroke="#9a6b00"/></svg>`;
+function card(c,cls,a,st){return `<div class="cd ${cls||""}" data-id="${c}" ${a?`data-a="${a}" data-p="${esc(JSON.stringify(c))}"`:""} ${st?`style="${st}"`:""}>${face(c)}</div>`}
+const back=()=>`<div class="cd back">${BACKSVG}</div>`;
+const backFan=n=>`<span class="bf">${Array.from({length:Math.min(n,12)},(_,i)=>`<i style="margin-left:${i?-8:0}px"></i>`).join("")}<small class="mut" style="margin-left:6px">${n}</small></span>`;
+const stack=n=>`<div id="pile" class="stack">${n?Array.from({length:Math.min(5,Math.ceil(n/3))},(_,i)=>`<div class="cd back" style="left:${6+i*6}px;top:${14-i*3}px;transform:rotate(${(i-1)*5}deg)">${BACKSVG}</div>`).join(""):""}</div>`;
+let ORD={},busy=false,animKey=-1,DR=null,dragged=false;
+const dsort=(a,b)=>pc(a)[0]-pc(b)[0]||NUMS.indexOf(pc(a)[1])-NUMS.indexOf(pc(b)[1]);
+function hand(cs,owner){const o=ORD[owner]||[],known=o.filter(c=>cs.includes(c)),rest=cs.filter(c=>!known.includes(c));if(!known.length)rest.sort(dsort);const out=known.concat(rest);ORD[owner]=out;return out}
+function fan(cs,o){o=o||{};const n=cs.length,step=n<2?0:Math.min(8,40/(n-1)),ml=n<=3?-6:n<=5?-18:n<=7?-27:-33,sel=(o.sel||[]).filter(Boolean);
+  return `<div class="fan" data-owner="${esc(o.owner||"")}">`+cs.map((c,i)=>{const d=i-(n-1)/2;return card(c,sel.includes(c)?"sel":"",o.act||"",`z-index:${i};--r:${(d*step).toFixed(1)}deg;--y:${Math.round(d*d*1.1)}px;--ml:${ml}px`)}).join("")+`</div>`}
+document.addEventListener("pointerdown",e=>{const c=e.target.closest&&e.target.closest(".fan .cd");if(!c||(e.button||0)>0)return;DR={c,x:e.clientX,id:e.pointerId,on:false}});
+document.addEventListener("pointermove",e=>{if(!DR)return;const dx=e.clientX-DR.x;if(!DR.on){if(Math.abs(dx)<10)return;DR.on=true;DR.c.classList.add("drag");try{DR.c.setPointerCapture(DR.id)}catch(_){}}
+  DR.c.style.transform=`translate(${dx}px,-8px) rotate(0deg)`;if(e.cancelable)e.preventDefault()});
+const endDrag=e=>{if(!DR)return;const d=DR;DR=null;if(!d.on)return;dragged=true;setTimeout(()=>dragged=false,150);
+  const fn=d.c.parentElement,cs=[...fn.children].filter(x=>x!==d.c);let idx=0;cs.forEach(x=>{const r=x.getBoundingClientRect();if(r.left+r.width/2<e.clientX)idx++});
+  const ids=cs.map(x=>x.dataset.id);ids.splice(idx,0,d.c.dataset.id);ORD[fn.dataset.owner]=ids;render()};
+document.addEventListener("pointerup",endDrag);document.addEventListener("pointercancel",endDrag);
+const cardEl=id=>[...document.querySelectorAll(".cd[data-id]")].find(e=>e.dataset.id===id);
+const PE=(el,k)=>{const r=el.getBoundingClientRect();return{cx:r.left+r.width/2,cy:r.top+r.height/2,s:(el.offsetWidth||58)/58,k}};
+function flight(c,pts,ms,cb){const e=document.createElement("div");if(!e.animate){if(cb)cb();return}
+  e.style.cssText="position:fixed;left:0;top:0;z-index:50;pointer-events:none;transform-origin:0 0";e.innerHTML=card(c);document.body.appendChild(e);
+  const an=e.animate(pts.map(p=>({transform:`translate(${p.cx-29*p.s}px,${p.cy-43.5*p.s}px) scale(${p.s})`,offset:p.k})),{duration:ms,easing:"ease-in-out",fill:"forwards"});
+  an.onfinish=an.oncancel=()=>{e.remove();if(cb)cb()}}
+const actorId=()=>R.mode==="local"?GAMES[R.game].turnOf(R.S):me;
+function fxFor(a,p){const g=R.game,id=actorId();let pr=[];
+  if(g==="chinchon"&&(a==="discard"||a==="cut"))pr=[[p,"#discpile"]];
+  else if(g==="escoba"&&a==="play"){pr=[[p.c,p.t.length?"#sc-"+id:"#tbl"]].concat(p.t.map(x=>[x,"#sc-"+id]))}
+  else if(g==="mentiroso"&&a==="play")pr=p.map(x=>[x,"#pile"]);
+  else if(g==="truco"&&a==="play")pr=[[p,"#tbl"]];
+  pr=pr.map(([c,t])=>[cardEl(c),$(t)]).filter(x=>x[0]&&x[1]);if(!pr.length)return null;
+  return cb=>{let left=pr.length;pr.forEach(([el,T],i)=>{const a0=PE(el,0),r=T.getBoundingClientRect();el.style.visibility="hidden";
+    flight(el.dataset.id,[a0,{cx:r.left+r.width/2+i*8,cy:r.top+r.height/2,s:a0.s*.9,k:1}],650+i*70,()=>{if(--left===0)cb()})})}}
+function go(a,p){const G=GAMES[R.game],S=R.mode==="online"?R.room.S:R.S,g2=clone(S),e=G.act(g2,actorId(),a,p);if(e){toast(e);return}
+  const f=fxFor(a,p);if(!f)return dispatch(a,p);busy=true;f(()=>{busy=false;dispatch(a,p)})}
+
+/* ================= ESCOBA ================= */
+const ev=c=>{const n=pc(c)[1];return n<=7?n:n-2};
+const PV={7:21,6:18,1:16,5:15,4:14,3:13,2:12,10:10,11:10,12:10};
+const prim=cs=>{let t=0;for(let s=0;s<4;s++){const v=cs.filter(c=>pc(c)[0]===s).map(c=>PV[pc(c)[1]]);if(!v.length)return 0;t+=Math.max(...v)}return t};
+function combos(tb,t){const out=[],go=(i,acc,sum)=>{if(sum===t&&acc.length){out.push(acc.slice());return}if(sum>=t)return;for(let k=i;k<tb.length;k++){acc.push(tb[k]);go(k+1,acc,sum+ev(tb[k]));acc.pop()}};go(0,[],0);return out}
+const deal=g=>g.players.forEach(p=>g.hands[p.id]=g.deck.splice(0,3));
+function esRound(g){let tb,dk;do{dk=shuffle(deck40());tb=dk.splice(0,4)}while(tb.filter(c=>pc(c)[1]===12).length>=3);
+  g.deck=dk;g.table=tb;g.round++;g.dealer=(g.dealer+1)%g.players.length;g.turn=(g.dealer+1)%g.players.length;g.last=null;
+  g.players.forEach(p=>{g.caps[p.id]=[];g.esc[p.id]=0});deal(g)}
+function endRound(g){
+  if(g.last)g.caps[g.last].push(...g.table);g.table=[];
+  const P=g.players,pt={},L=[];P.forEach(p=>pt[p.id]=0);
+  const best=(f,t)=>{const v=P.map(p=>f(g.caps[p.id])),m=Math.max(...v);if(m>0&&v.filter(x=>x===m).length===1){const w=P[v.indexOf(m)];pt[w.id]++;L.push(t+": "+w.name)}else L.push(t+": nadie (empate)")};
+  best(c=>c.length,"Más cartas");best(c=>c.filter(x=>pc(x)[0]===0).length,"Más oros");best(prim,"Primera (setenta)");
+  P.forEach(p=>{if(g.caps[p.id].includes("0.7")){pt[p.id]++;L.push("Siete de oros: "+p.name)}});
+  P.forEach(p=>{if(g.esc[p.id]){pt[p.id]+=g.esc[p.id];L.push("Escobas de "+p.name+": "+g.esc[p.id])}});
+  P.forEach(p=>g.score[p.id]+=pt[p.id]);g.rs=L;
+  const mx=Math.max(...P.map(p=>g.score[p.id]));
+  if(mx>=g.goal&&P.filter(p=>g.score[p.id]===mx).length===1)g.over=P.find(p=>g.score[p.id]===mx).id;else esRound(g)}
+
+/* ================= CHINCHÓN (helpers) ================= */
+const sidx=c=>NUMS.indexOf(pc(c)[1]);
+const mkDeck=d=>{const o=[];for(let k=0;k<d;k++)for(const c of deck40())o.push(k?c+"."+k:c);return shuffle(o)};
+function melds(cs){const out=[],by={},runs={};
+  cs.forEach((c,i)=>{const[s,n]=pc(c),k=sidx(c);(by[n]=by[n]||[]).push(i);runs[s]=runs[s]||{};(runs[s][k]=runs[s][k]||[]).push(i)});
+  for(const k in by){const a=by[k],m=a.length;if(m>=3)for(let x=1;x<(1<<m);x++){const q=a.filter((_,j)=>x>>j&1);if(q.length>=3)out.push({t:"g",i:q})}}
+  for(const s in runs){const r=runs[s];for(let a=0;a<10;a++){let ch=[[]];for(let b=a;b<10&&r[b];b++){ch=ch.flatMap(p=>r[b].map(i=>p.concat(i)));if(b-a>=2)ch.forEach(p=>out.push({t:"r",i:p}))}}}
+  return out}
+function arr(cs){const M=melds(cs).map(m=>({...m,mask:m.i.reduce((a,i)=>a|1<<i,0)})),val=cs.map(ev);let bv=1e9,bs=[];
+  const dead=u=>{let s=0;for(let i=0;i<cs.length;i++)if(!(u>>i&1))s+=val[i];return s};
+  const go=(st,u,ch)=>{const d=dead(u);if(d<bv){bv=d;bs=ch.slice()}if(bv===0)return;for(let m=st;m<M.length;m++)if(!(u&M[m].mask)){ch.push(M[m]);go(m+1,u|M[m].mask,ch);ch.pop();if(bv===0)return}};
+  go(0,0,[]);const used=bs.reduce((a,m)=>a|m.mask,0);
+  return{pts:bv,melds:bs.map(m=>({t:m.t,cs:m.i.map(i=>cs[i])})),dead:cs.filter((_,i)=>!(used>>i&1))}}
+const isChin=cs=>{if(cs.length!==7)return false;const s=pc(cs[0])[0];if(!cs.every(c=>pc(c)[0]===s))return false;const k=cs.map(sidx).sort((a,b)=>a-b);return k.every((v,i)=>i===0||v===k[i-1]+1)};
+const canAdd=(m,c)=>{const[s,n]=pc(c);if(m.t==="g")return pc(m.cs[0])[1]===n&&m.cs.length<8;
+  return pc(m.cs[0])[0]===s&&(sidx(c)===sidx(m.cs[0])-1||sidx(c)===sidx(m.cs[m.cs.length-1])+1)};
+const addTo=(m,c)=>{m.cs=m.t==="r"&&sidx(c)<sidx(m.cs[0])?[c,...m.cs]:[...m.cs,c]};
+const nextAct=g=>{let i=(g.turn+1)%g.players.length;while(g.out[g.players[i].id])i=(i+1)%g.players.length;g.turn=i};
+function newRound(g){const P=g.players;g.deck=mkDeck(g.d);g.hands={};P.filter(p=>!g.out[p.id]).forEach(p=>g.hands[p.id]=g.deck.splice(0,7));g.disc=[g.deck.pop()];g.round++;
+  let d=(g.dealer+1)%P.length;while(g.out[P[d].id])d=(d+1)%P.length;g.dealer=d;g.turn=d;nextAct(g);g.phase="draw"}
+function resolve(g,cutter,cutCard){
+  const P=g.players,act=P.filter(p=>!g.out[p.id]),ci=act.findIndex(p=>p.id===cutter),ord=act.slice(ci).concat(act.slice(0,ci)),avail=[],rows=[];let chin=false,noLay=false;
+  for(const p of ord){
+    const hand=p.id===cutter?g.hands[p.id].filter(c=>c!==cutCard):g.hands[p.id],a=arr(hand),row={id:p.id,name:p.name,melds:a.melds,lay:[],dead:a.dead.slice()};
+    if(p.id===cutter){chin=isChin(hand);noLay=a.pts===0;if(chin)row.melds=[{t:"r",cs:hand.slice().sort((x,y)=>sidx(x)-sidx(y))}]}
+    else if(!noLay){let ch=true;while(ch){ch=false;for(const c of row.dead.slice()){const m=avail.find(m=>canAdd(m,c));if(m){addTo(m,c);row.dead.splice(row.dead.indexOf(c),1);row.lay.push(c);ch=true;break}}}}
+    row.pts=p.id===cutter&&!row.dead.length?-10:row.dead.reduce((s,c)=>s+ev(c),0);
+    a.melds.forEach(m=>avail.push({t:m.t,cs:m.cs.slice()}));rows.push(row)}
+  g.res={by:cutter,chin,rows};
+  if(chin){g.over=cutter;lg(g,"🎉 ¡Chinchón de "+nm(g,cutter)+"!");return}
+  rows.forEach(r=>g.score[r.id]+=r.pts);lg(g,"✂️ Cortó "+nm(g,cutter));
+  const lim=g.limit,under=act.filter(p=>g.score[p.id]<=lim);
+  if(!under.length){const mn=Math.min(...act.map(p=>g.score[p.id])),c=act.filter(p=>g.score[p.id]===mn);g.over=(c.find(p=>p.id===cutter)||c[0]).id}
+  else{act.filter(p=>g.score[p.id]>lim).forEach(p=>{if(g.reen&&!g.re[p.id]&&under.length>=2){g.score[p.id]=Math.max(...under.map(q=>g.score[q.id]));g.re[p.id]=1;lg(g,"🔁 "+p.name+" se reengancha")}else{g.out[p.id]=true;lg(g,"❌ "+p.name+" queda eliminado")}});
+    const left=P.filter(p=>!g.out[p.id]);if(left.length===1)g.over=left[0].id}
+  if(!g.over)newRound(g)}
+
+/* ================= TRUCO (helpers) ================= */
+const TN=["","truco","retruco","vale cuatro"],LBL={E:"Envido",R:"Real envido",F:"Falta envido"};
+const TP=c=>{const[s,n]=pc(c);if(n===1&&s===2)return 14;if(n===1&&s===3)return 13;if(n===7&&s===2)return 12;if(n===7&&s===0)return 11;if(n===3)return 10;if(n===2)return 9;if(n===1)return 8;if(n===12)return 7;if(n===11)return 6;if(n===10)return 5;if(n===7)return 4;return n-3};
+const e1=c=>{const n=pc(c)[1];return n>=10?0:n};
+const envPts=cs=>{let b=0;for(let i=0;i<3;i++){b=Math.max(b,e1(cs[i]));for(let j=i+1;j<3;j++)if(pc(cs[i])[0]===pc(cs[j])[0])b=Math.max(b,20+e1(cs[i])+e1(cs[j]))}return b};
+const isFlor=cs=>cs.length===3&&cs.every(c=>pc(c)[0]===pc(cs[0])[0]);
+const florPts=cs=>20+cs.reduce((s,c)=>s+e1(c),0);
+const ek=(g,s)=>g.mode==="4"||g.mode==="6"?"#"+(s%2):g.players[s].id;
+const ent=(g,k)=>k[0]==="#"?"Equipo "+"AB"[+k[1]]+" ("+g.players.filter((_,i)=>i%2===+k[1]).map(p=>p.name).join(", ")+")":nm(g,k);
+const sname=(g,h,sd)=>h.seats.filter(s=>h.side[s]===sd).map(s=>g.players[s].name).join(" y ");
+const respSeat=(h,by)=>{const n=h.seats.length,i=h.seats.indexOf(by);for(let k=1;k<=n;k++){const s=h.seats[(i+k)%n];if(h.side[s]!==h.side[by])return s}};
+const tOrder=h=>{const i=h.seats.indexOf(h.lead);return h.seats.slice(i).concat(h.seats.slice(0,i))};
+const falta=(g,h)=>{const ld=Math.max(...h.seats.map(s=>g.sc[ek(g,s)])),a=Math.max(1,g.goal-ld);return h.pica?Math.min(a,6):a};
+const chainOK=(ch,a)=>{if(ch.length&&ch[ch.length-1]==="F")return false;if(a==="E")return ch.filter(x=>x==="E").length<2&&!ch.includes("R");if(a==="R")return !ch.includes("R");return a==="F"};
+const envOK=(h,s)=>!h.envOff&&!h.envDone&&!h.tr.length&&h.cur[s]===undefined&&h.level===0;
+function handWin(w,m){const[a,b,c]=w;if(w.length<2)return null;
+  if(a!==-1&&a===b)return a;if(a===-1&&b!==-1)return b;if(a!==-1&&b===-1)return a;if(w.length===2)return null;
+  if(a===-1&&b===-1)return c===-1?m:c;return c===-1?a:c}
+function gain(g,h,sd,pts,why){const ks=[...new Set(h.seats.filter(s=>h.side[s]===sd).map(s=>ek(g,s)))];
+  ks.forEach(k=>{g.sc[k]=Math.min(g.goal,(g.sc[k]||0)+pts);if(g.sc[k]>=g.goal&&!g.hit)g.hit=k});lg(g,why+": +"+pts+" "+ks.map(k=>ent(g,k)).join(" y "))}
+function finish(g,h,sd,pts,why){gain(g,h,sd,pts,why);h.done=true}
+function afterDeal(g,h){h.seats.forEach(s=>h.orig[s]=h.cards[s].slice());h.ph="play";h.turn=h.seats[0];
+  if(!g.flor)return;const fl=h.seats.filter(s=>isFlor(h.orig[s]));if(!fl.length)return;
+  h.envOff=true;h.fl=fl;const sides=[...new Set(fl.map(s=>h.side[s]))];
+  if(sides.length===1){gain(g,h,sides[0],3*fl.length,"🌸 Flor");return}
+  h.ph="flor";h.turn=fl[0]}
+function mk(g,seats,cards,pica){const h={seats,side:{},orig:{},cards:{},tr:[],cur:{},level:0,tOwner:null,bid:null,pend:null,ret:null,envDone:false,envOff:false,pica:!!pica,lead:seats[0],turn:seats[0],ph:"play",done:false};
+  seats.forEach((s,i)=>{h.side[s]=g.mode==="2"?i:g.mode==="3"?(s===g.gallo?0:1):s%2;h.cards[s]=cards[s].slice()});
+  h.manoSide=h.side[seats[0]];if(g.mode==="3"){h.ph="gallo";h.turn=g.gallo}else afterDeal(g,h);return h}
+function nextHand(g){const n=g.players.length;
+  if(g.ppq.length){g.h=mk(g,g.ppq.shift(),g.ppc,true);return}
+  g.dealer=(g.dealer+1)%n;const mano=(g.dealer+1)%n,dk=shuffle(deck40()),cards={};g.gallo=g.mode==="3"?g.dealer:-1;
+  for(let i=0;i<n;i++){const s=(mano+i)%n;cards[s]=dk.splice(0,s===g.gallo?4:3)}
+  const mx=Math.max(...Object.values(g.sc));
+  if(g.mode==="6"&&g.pp&&g.lastRed&&mx>=5&&mx<25){g.lastRed=false;g.ppc=cards;const od=pr=>pr.sort((a,b)=>((a-mano+n)%n)-((b-mano+n)%n));
+    g.ppq=[od([0,3]),od([1,4]),od([2,5])];lg(g,"⚔️ Ronda de pica-pica");g.h=mk(g,g.ppq.shift(),cards,true);return}
+  g.lastRed=true;g.h=mk(g,Array.from({length:n},(_,i)=>(mano+i)%n),cards,false)}
+function post(g){for(let k=0;k<8&&!g.over;k++){
+  if(g.hit){const key=g.hit;g.hit=null;g.wins[key]=(g.wins[key]||0)+1;lg(g,"🏁 "+ent(g,key)+" ganó el chico");
+    if(g.wins[key]>=g.need){g.over=key;return}
+    Object.keys(g.sc).forEach(x=>g.sc[x]=0);g.ppq=[];g.lastRed=false;nextHand(g);continue}
+  if(g.h.done){nextHand(g);continue}break}}
+function florAct(g,h,seat,a){const b=h.bid,sd=h.side[seat],n=h.fl.length,other=h.fl.find(s=>h.side[s]!==sd);
+  const end=(w,v,why)=>{gain(g,h,w,v,why);h.bid=null;h.ph="play";h.turn=h.seats[0]};
+  const best=()=>{const m=[-1,-1];h.fl.forEach(s=>m[h.side[s]]=Math.max(m[h.side[s]],florPts(h.orig[s])));return m[0]>m[1]?0:m[1]>m[0]?1:h.manoSide};
+  if(!b){if(a==="fsettle"){end(best(),3*n,"🌸 Flor");return}
+    if(a==="C"||a==="A"){h.bid={k:"L",ch:[a],by:seat,to:other};h.turn=other;return}return"Acción inválida"}
+  const last=b.ch[b.ch.length-1];
+  if(a==="q"){end(best(),last==="C"?6:falta(g,h)+3*n,"🌸 Contraflor");return}
+  if(a==="n"){end(h.side[b.by],b.ch.includes("C")&&last==="A"?6:3*n,"🌸 Con flor me achico");return}
+  if(a==="A"&&last==="C"){h.bid={k:"L",ch:b.ch.concat("A"),by:seat,to:other};h.turn=other;return}
+  return"Respuesta inválida"}
+function tAct(g,me,a,p){const h=g.h,seat=g.players.findIndex(q=>q.id===me);
+  if(seat<0||h.turn!==seat)return"No es tu turno";const sd=h.side[seat],who=g.players[seat].name;
+  if(h.ph==="gallo"){if(a!=="gallo"||!h.cards[seat].includes(p))return"Elegí la carta que descartás";h.cards[seat].splice(h.cards[seat].indexOf(p),1);afterDeal(g,h);return}
+  if(h.ph==="flor")return florAct(g,h,seat,a);
+  const b=h.bid;
+  if(!b){
+    if(a==="play"){if(!h.cards[seat].includes(p))return"Elegí una carta de tu mano";
+      h.cards[seat].splice(h.cards[seat].indexOf(p),1);h.cur[seat]=p;
+      const od=tOrder(h),rest=od.find(s=>h.cur[s]===undefined);if(rest!==undefined){h.turn=rest;return}
+      let best=-1,ws=[];od.forEach(s=>{const w=TP(h.cur[s]);if(w>best){best=w;ws=[s]}else if(w===best)ws.push(s)});
+      const ss=[...new Set(ws.map(s=>h.side[s]))],w=ss.length>1?-1:ss[0];h.tr.push({cs:h.cur,w});h.cur={};
+      const r=handWin(h.tr.map(t=>t.w),h.manoSide);if(r!==null){finish(g,h,r,h.level?h.level+1:1,"✅ Gana la mano "+sname(g,h,r));return}
+      if(w!==-1)h.lead=ws[0];h.turn=h.lead;return}
+    if(a==="mazo"){finish(g,h,1-sd,h.level?h.level+1:1,"🏳️ "+who+" se fue al mazo");return}
+    if(a==="E"||a==="R"||a==="F"){if(!envOK(h,seat))return"El envido ya no se puede cantar";h.ret=seat;h.bid={k:"V",ch:[a],by:seat,to:respSeat(h,seat)};h.turn=h.bid.to;lg(g,"🗣️ "+who+": "+LBL[a]);return}
+    if(a==="T"){if(!(h.level===0||(h.tOwner===sd&&h.level<3)))return"Ahora no podés cantar eso";h.ret=seat;h.bid={k:"T",lv:h.level+1,by:seat,to:respSeat(h,seat)};h.turn=h.bid.to;lg(g,"🗣️ "+who+": "+TN[h.level+1]);return}
+    return"Acción inválida"}
+  if(b.k==="V"){
+    if(a==="q"||a==="n"){
+      if(a==="q"){const m=[-1,-1];h.seats.forEach(s=>m[h.side[s]]=Math.max(m[h.side[s]],envPts(h.orig[s])));const w=m[0]>m[1]?0:m[1]>m[0]?1:h.manoSide;
+        gain(g,h,w,b.ch.includes("F")?falta(g,h):b.ch.reduce((x,c)=>x+(c==="E"?2:3),0),"🗣️ Envido: "+m[w]+" tantos")}
+      else gain(g,h,h.side[b.by],b.ch.slice(0,-1).reduce((x,c)=>x+(c==="E"?2:3),0)+1,"Envido no querido");
+      h.envDone=true;h.bid=null;if(h.pend){h.bid=h.pend;h.pend=null;h.turn=h.bid.to}else h.turn=h.ret;return}
+    if(a==="E"||a==="R"||a==="F"){if(!chainOK(b.ch,a))return"No podés subir con eso";h.bid={k:"V",ch:b.ch.concat(a),by:seat,to:respSeat(h,seat)};h.turn=h.bid.to;lg(g,"🗣️ "+who+": "+LBL[a]);return}
+    return"Respondé quiero, no quiero o subí el envido"}
+  if(a==="q"){h.level=b.lv;h.tOwner=sd;h.bid=null;h.turn=h.ret;lg(g,"👍 "+who+": quiero "+TN[b.lv]);return}
+  if(a==="n"){finish(g,h,h.side[b.by],b.lv,"🙅 "+who+": no quiero "+TN[b.lv]);return}
+  if(a==="T"){if(b.lv>=3)return"No hay más para subir";h.level=b.lv;h.tOwner=sd;h.bid={k:"T",lv:b.lv+1,by:seat,to:respSeat(h,seat)};h.turn=h.bid.to;lg(g,"🗣️ "+who+": quiero "+TN[b.lv]+" y canto "+TN[b.lv+1]);return}
+  if(a==="E"||a==="R"||a==="F"){if(!envOK(h,seat))return"El envido ya no se puede cantar";h.pend=b;h.bid={k:"V",ch:[a],by:seat,to:respSeat(h,seat)};h.turn=h.bid.to;lg(g,"🗣️ "+who+": el envido está primero ("+LBL[a]+")");return}
+  return"Respondé quiero, no quiero o subí"}
+
+/* ================= REGISTRO DE JUEGOS ================= */
+const GAMES={
+chinchon:{name:"Chinchón",icon:"🂡",counts:[2,3,4,5,6,7,8],opts:[{k:"limit",t:"Se juega a",v:[100,70]},{k:"reen",t:"Reenganche",v:["No","Sí"]}],
+  init(pl,o){const g={players:pl,d:pl.length>4?2:1,limit:+o.limit||100,reen:o.reen==="Sí",score:{},out:{},re:{},dealer:-1,round:0,over:null,res:null,log:[],hands:{},deck:[],disc:[]};pl.forEach(p=>g.score[p.id]=0);newRound(g);return g},
+  turnOf:g=>g.over?null:g.players[g.turn].id,
+  act(g,me,a,p){if(g.over)return"La partida terminó";if(g.players[g.turn].id!==me)return"No es tu turno";const h=g.hands[me];
+    if(a==="draw"){if(g.phase!=="draw")return"Ya robaste: ahora descartá o cortá";let c;
+      if(p==="disc")c=g.disc.pop();else{if(!g.deck.length){const top=g.disc.pop();g.deck=shuffle(g.disc);g.disc=[top]}c=g.deck.pop()}
+      if(!c)return"No quedan cartas";h.push(c);g.drawn=c;g.drawnBy=me;g.src=p==="disc"?"d":"m";g.dn=Date.now();g.phase="discard";return}
+    if(g.phase!=="discard")return"Primero robá una carta";if(!h.includes(p))return"Elegí una carta de tu mano";
+    if(a==="discard"){h.splice(h.indexOf(p),1);g.disc.push(p);g.res=null;g.drawn=null;nextAct(g);g.phase="draw"}
+    else if(a==="cut"){if(arr(h.filter(c=>c!==p)).pts>5)return"Para cortar, lo que no ligás debe sumar 5 puntos o menos";g.drawn=null;resolve(g,me,p)}},
+  ui(U,a,p,g,me){if(a==="u_sort"){ORD[me]=(g.hands[me]||[]).slice().sort(dsort);return}if(U.c===p&&g.phase==="discard")return{go:["discard",p]};U.c=p},
+  fx(g,me){if(!g.drawn||g.drawnBy!==me||animKey===g.dn)return;animKey=g.dn;const t=cardEl(g.drawn),src=$(g.src==="d"?"#discpile":"#deckpile");if(!t||!src)return;
+    const a0=PE(src,0),d=PE(t,1),W=innerWidth,H=innerHeight;t.style.visibility="hidden";busy=true;
+    flight(g.drawn,g.src==="d"?[a0,d]:[a0,{cx:W/2,cy:H/2,s:2,k:.3},{cx:W/2,cy:H/2,s:2,k:.62},d],g.src==="d"?800:2000,()=>{busy=false;t.style.visibility="";t.classList.add("pop")})},
+  view(g,me,U){const pl=g.players[g.turn],my=pl.id===me,h=(g.hands[me]||[]).slice().sort((x,y)=>pc(x)[0]-pc(y)[0]||sidx(x)-sidx(y)),sel=h.includes(U.c)?U.c:null,hint=my&&g.phase==="draw"&&!g.over?"hint":"";
+    const box=m=>`<div class="hand" style="border:2px solid var(--acc);border-radius:8px;padding:3px;display:inline-flex;margin:2px">${m.cs.map(c=>card(c)).join("")}</div>`;
+    let s=g.over?`<div class="pan win">🏆 ¡Ganó ${esc(nm(g,g.over))}${g.res&&g.res.chin?" con CHINCHÓN!":"!"}</div>`:`<div class="pan banner ${my?"go":""}">${my?(g.phase==="draw"?"① Robá una carta: tocá el <b>MAZO</b> o el <b>DESCARTE</b>":"② Elegí una carta: descartala o, si lo que no ligás suma 5 o menos, cortá ✂️"):"Juega "+esc(pl.name)}</div>`;
+    s+=`<div class="row">${g.players.map(p=>`<div class="pan ${p.id===pl.id?"me":""}">${esc(p.name)}${g.out[p.id]?" ❌":""}<br><span class="mut">${g.score[p.id]}/${g.limit} pts${g.hands[p.id]?" · "+g.hands[p.id].length+" cartas":""}</span></div>`).join("")}</div>`;
+    s+=`<div class="row"><div><small class="mut">Mazo (${g.deck.length})</small><br><div id="deckpile" class="cd back ${hint}" data-a="draw" data-p='"deck"'>${BACKSVG}</div></div><div><small class="mut">Descarte</small><br><div id="discpile" class="slot ${hint}" ${g.disc.length?`data-a="draw" data-p='"disc"'`:""}>${g.disc.length?card(g.disc[g.disc.length-1]):""}</div></div></div>`;
+    if(g.res)s+=`<div class="pan"><b>${g.res.chin?"🎉 ¡CHINCHÓN!":"Resultado"} · cortó ${esc(nm(g,g.res.by))}</b>`+g.res.rows.map(r=>`<div style="margin-top:6px"><b>${esc(r.name)}</b> <span class="mut">${r.pts>0?"+":""}${r.pts} pts</span><div>${r.melds.map(box).join("")}</div>${r.lay.length?`<div class="mut">Ligó a la mesa:</div><div class="hand">${r.lay.map(c=>card(c)).join("")}</div>`:""}${r.dead.length?`<div class="mut">Sin ligar:</div><div class="hand">${r.dead.map(c=>card(c)).join("")}</div>`:""}</div>`).join("")+`</div>`;
+    const base=sel&&my&&g.phase==="discard"?h.filter(c=>c!==sel):(h.length===7?h:null),a=base&&arr(base);
+    s+=`<div class="pan ${my?"me":""}"><b>Tu mano</b> <button class="sec" data-a="u_sort" style="padding:4px 10px;font-size:13px">Ordenar</button>${fan(hand(h,me),{sel:[sel],act:my&&g.phase==="discard"?"u_c":"",owner:me})}<div class="mut">Podés arrastrar las cartas para armar tus jugadas.${my&&g.phase==="discard"?" Tocá una carta para marcarla y otra vez para descartarla.":""}</div>`;
+    if(a)s+=`<div class="mut" style="margin-top:8px">Tus ligaduras${sel?" (sin la carta elegida)":""}:</div><div>${a.melds.map(box).join("")}</div>${a.dead.length?`<div class="mut">Sin ligar: ${a.pts} pts</div><div class="hand">${a.dead.map(c=>card(c)).join("")}</div>`:`<div class="mut">¡Todo ligado!</div>`}`;
+    if(my&&sel&&g.phase==="discard"&&!g.over)s+=`<span class="mut">Tocá otra vez la carta para descartarla · </span>`+(a.pts<=5?`<button class="sec" data-a="cut" data-p="${esc(JSON.stringify(sel))}">✂️ Cortar${isChin(base)?" — ¡CHINCHÓN!":a.pts===0?" (−10)":""}</button>`:`<span class="mut">No podés cortar: sin ligar ${a.pts} pts (máx. 5)</span>`);
+    s+=`</div><details><summary>Reglas</summary><div class="mut">Baraja española de 40 cartas (de 2 a 4 jugadores; con 5 a 8 se usan dos barajas). Se reparten 7 cartas y una queda boca arriba. En tu turno robás del mazo o del descarte y descartás una carta. Se liga con grupos de 3 o 4 cartas del mismo número, o escaleras de 3 o más del mismo palo (el 1 solo liga con el 2; el 7 sigue con la sota; el rey cierra). Valen su número, sota 8, caballo 9 y rey 10. Se corta cuando, tras descartar, lo que no ligás suma 5 puntos o menos: los demás ligan sus cartas sueltas a las jugadas de la mesa y suman lo que les queda. Si cortás con todo ligado restás 10, y nadie puede ligar a tus jugadas. Si ligás las 7 cartas en una escalera del mismo palo es <b>Chinchón</b> y ganás la partida. Quien supera ${g.limit} puntos queda eliminado; gana el último que queda${g.reen?" (con reenganche: una vez, tomando el puntaje más alto de los que siguen)":""}.</div></details><div class="mut">${(g.log||[]).map(esc).join("<br>")}</div>`;
+    return s}
+},
+truco:{name:"Truco",icon:"🧉",counts:[2,3,4,6],cl:{2:"2 · Mano a mano",3:"3 · Gallo (uno contra dos, rotando)",4:"4 · En parejas",6:"6 · Dos equipos de tres"},
+  note:"Equipos: los jugadores 1, 3 y 5 contra 2, 4 y 6. De a seis, si activás el pica-pica, hay manos normales y otras de punta (cada uno contra el que tiene enfrente).",
+  opts:[{k:"flor",t:"Flor",v:["Sin flor","Con flor"]},{k:"goal",t:"Se juega a",v:[30,15]},{k:"chicos",t:"Partida",v:["1 chico","Mejor de 3 chicos"]},{k:"pica",t:"Pica-pica (de a seis)",v:["Sí","No"]}],
+  init(pl,o){const n=pl.length,g={players:pl,mode:String(n),goal:+o.goal||30,flor:o.flor==="Con flor",pp:o.pica!=="No",need:o.chicos==="Mejor de 3 chicos"?2:1,sc:{},wins:{},dealer:n-1,over:null,log:[],hit:null,ppq:[],ppc:null,lastRed:false,gallo:-1};
+    (n>=4?["#0","#1"]:pl.map(p=>p.id)).forEach(k=>g.sc[k]=0);nextHand(g);post(g);return g},
+  turnOf:g=>g.over?null:g.players[g.h.turn].id,
+  act(g,me,a,p){if(g.over)return"La partida terminó";const e=tAct(g,me,a,p);if(!e)post(g);return e},
+  ui(){},
+  view(g,me,U){const h=g.h,P=g.players,seat=P.findIndex(q=>q.id===me),my=h.turn===seat&&!g.over,inH=h.seats.includes(seat),sd=h.side[seat],tn=s=>esc(P[s].name);
+    const bt=b=>b.k==="T"?TN[b.lv]:b.k==="V"?b.ch.map(c=>LBL[c]).join(" + "):b.ch.map(c=>c==="C"?"contraflor":"contraflor al resto").join(" + ");
+    let s="";
+    if(g.over)s+=`<div class="pan win">🏆 ¡Ganó ${esc(ent(g,g.over))}!</div>`;
+    else{const msg=my?(h.ph==="gallo"?"Sos el gallo: elegí la carta que descartás (boca abajo)":h.bid?"Te cantaron <b>"+esc(bt(h.bid))+"</b>: respondé":h.ph==="flor"?"Tenés flor: elegí cómo seguir":"Tu turno: jugá una carta o cantá"):"Juega "+tn(h.turn)+(h.bid?" · cantó <b>"+esc(bt(h.bid))+"</b>":"");
+      s+=`<div class="pan banner ${my?"go":""}">${msg}</div>`}
+    s+=`<div class="row">${Object.keys(g.sc).map(k=>`<div class="pan">${esc(ent(g,k))}<br><span class="mut">${g.sc[k]}/${g.goal}${g.goal===30?(g.sc[k]>=15?" · buenas":" · malas"):""}${g.wins[k]?" · chicos: "+g.wins[k]:""}</span></div>`).join("")}</div>`;
+    const rows=h.tr.concat(Object.keys(h.cur).length?[{cs:h.cur,w:null}]:[]);
+    s+=`<div id="tbl" class="pan"><b>Mesa</b> <span class="mut">· la mano vale ${h.level?h.level+1:1} · ${h.pica?"pica-pica: "+tn(h.seats[0])+" vs "+tn(h.seats[1]):"juegan "+h.seats.map(tn).join(", ")}${g.mode==="3"?" · gallo: "+tn(g.gallo):""}</span>`
+      +rows.map((t,i)=>`<div class="hand" style="align-items:flex-end"><span class="mut">Baza ${i+1}</span>${h.seats.filter(st=>t.cs[st]!==undefined).map(st=>`<div style="text-align:center"><small>${tn(st)}</small>${card(t.cs[st])}</div>`).join("")}${t.w===-1?`<span class="mut">🤝 parda</span>`:t.w!==null?`<span class="mut">✔ ${esc(sname(g,h,t.w))}</span>`:""}</div>`).join("")
+      +`<div class="mut">${h.seats.filter(x=>x!==seat).map(x=>tn(x)+" "+backFan(h.cards[x].length)).join(" &nbsp; ")}</div></div>`;
+    if(inH){let ac="";const B=(a,t,c)=>`<button class="${c||""}" data-a="${a}">${t}</button> `;
+      if(my&&!g.over){
+        if(h.ph==="flor"){if(!h.bid)ac=B("fsettle","🌸 Flor")+B("C","Contraflor")+B("A","Contraflor al resto");else{const l=h.bid.ch[h.bid.ch.length-1];ac=B("q","Con flor quiero")+B("n","Con flor me achico","sec")+(l==="C"?B("A","Contraflor al resto"):"")}}
+        else if(h.ph==="play"){
+          if(!h.bid){if(envOK(h,seat))ac+=B("E","Envido")+B("R","Real envido")+B("F","Falta envido");if(h.level===0)ac+=B("T","Truco");else if(h.tOwner===sd&&h.level<3)ac+=B("T",h.level===1?"Retruco":"Vale cuatro");ac+=B("mazo","Irse al mazo","sec")}
+          else if(h.bid.k==="V"){ac=B("q","Quiero")+B("n","No quiero","sec");["E","R","F"].forEach(k=>{if(chainOK(h.bid.ch,k))ac+=B(k,LBL[k])})}
+          else{ac=B("q","Quiero")+B("n","No quiero","sec");if(h.bid.lv<3)ac+=B("T","Quiero "+TN[h.bid.lv+1]);if(envOK(h,seat))ac+=B("E","Envido")+B("R","Real envido")+B("F","Falta envido")}}}
+      const act=my&&!h.bid&&h.ph==="play"?"play":my&&h.ph==="gallo"?"gallo":"";
+      s+=`<div class="pan ${my?"me":""}"><b>Tu mano</b>${fan(hand(h.cards[seat]||[],me),{act,owner:me})}`
+        +(h.orig[seat]&&h.orig[seat].length?`<div class="mut">Tus tantos de envido: ${envPts(h.orig[seat])}${g.flor&&isFlor(h.orig[seat])?" · ¡tenés flor ("+florPts(h.orig[seat])+")!":""}</div>`:"")+`<div style="margin-top:6px">${ac}</div></div>`}
+    else s+=`<div class="pan mut">Estás mirando esta mano.</div>`;
+    s+=`<details><summary>Reglas</summary><div class="mut">Baraja española de 40 cartas, 3 cartas por jugador y tres bazas: gana la mano quien gana dos. Orden de mayor a menor: 1 de espadas, 1 de bastos, 7 de espadas, 7 de oros, los 3, los 2, 1 de copas y de oros, 12, 11, 10, 7 de copas y de bastos, 6, 5 y 4. Si hay parda en la primera, define la segunda; si la primera se ganó y hay parda después, gana quien ganó la primera; con tres pardas gana la mano. <b>Truco</b> (2), <b>retruco</b> (3) y <b>vale cuatro</b> (4): quien acepta puede subir; si no se quiere, el que cantó suma lo anterior. <b>Envido</b> (2), <b>real envido</b> (3) y <b>falta envido</b> (lo que le falta al que va ganando): solo en la primera baza y antes de aceptar un truco; dos cartas del mismo palo suman 20 más su valor (10, 11 y 12 valen 0) y, si no, vale la carta más alta; empata la mano. El envido está primero que el truco. <b>Flor</b> (3 cartas del mismo palo, 20 más su valor): 3 puntos por flor, con contraflor (6) y contraflor al resto. De a 3 juega un gallo contra los otros dos, que reciben los puntos cada uno; el gallo reparte, recibe 4 cartas y descarta una. De a 6 hay manos de pica-pica: cada uno juega contra el que tiene enfrente y la falta envido vale 6. Se juega a ${g.goal} (malas hasta 15, buenas después).</div></details><div class="mut">${(g.log||[]).map(esc).join("<br>")}</div>`;
+    return s}
+},
+mentiroso:{name:"Mentiroso",icon:"🤥",counts:[2,3,4,5,6],opts:[],
+  init(pl){const d=shuffle(deck40()),g={players:pl,hands:{},pile:[],turn:0,r:0,last:null,rev:null,over:null,log:[]};pl.forEach(p=>g.hands[p.id]=[]);d.forEach((c,i)=>g.hands[pl[i%pl.length].id].push(c));return g},
+  turnOf:g=>g.over?null:g.players[g.turn].id,
+  act(g,me,a,p){if(g.over)return"La partida terminó";const i=g.turn,pl=g.players[i];if(pl.id!==me)return"No es tu turno";
+    const pend=g.last&&!g.hands[g.last.by].length;
+    if(a==="play"){if(pend)return"Debés desafiar o aceptar";if(!p.length||p.length>4||new Set(p).size!==p.length||!p.every(c=>g.hands[me].includes(c)))return"Elegí de 1 a 4 cartas de tu mano";
+      const cl=NUMS[g.r];p.forEach(c=>g.hands[me].splice(g.hands[me].indexOf(c),1));g.pile.push(...p);g.last={by:me,n:p.length,cs:p,claim:cl};g.rev=null;g.r=(g.r+1)%10;g.turn=(i+1)%g.players.length;lg(g,pl.name+" jugó "+p.length+" carta(s) como "+rk(cl))}
+    else if(a==="challenge"){if(!g.last)return"No hay nada que desafiar";const L=g.last,liar=L.cs.some(c=>pc(c)[1]!==L.claim),loser=liar?L.by:me;
+      g.hands[loser].push(...g.pile);g.rev={by:L.by,cs:L.cs,claim:L.claim,liar,loser};g.pile=[];g.last=null;g.turn=g.players.findIndex(q=>q.id===loser);
+      lg(g,"🕵️ "+pl.name+" desafió a "+nm(g,L.by)+": "+(liar?"¡mentía!":"decía la verdad")+" y recoge la pila "+nm(g,loser));
+      if(!liar&&!g.hands[L.by].length)g.over=L.by}
+    else if(a==="accept"){if(!pend)return"No corresponde";g.over=g.last.by}
+  },
+  ui(U,a,p){U.s=U.s||[];const i=U.s.indexOf(p);if(i>=0)U.s.splice(i,1);else if(U.s.length<4)U.s.push(p)},
+  view(g,me,U){const pl=g.players[g.turn],my=pl.id===me,h=(g.hands[me]||[]).slice().sort(),sel=(U.s||[]).filter(c=>h.includes(c)),cl=NUMS[g.r],pend=g.last&&!g.hands[g.last.by].length;
+    let s=g.over?`<div class="pan win">🏆 ¡Ganó ${esc(nm(g,g.over))}!</div>`:`<div class="pan banner ${my?"go":""}">${my?(pend?esc(nm(g,g.last.by))+" se quedó sin cartas: desafiá o aceptá":"Tu turno: jugá de 1 a 4 cartas boca abajo diciendo que son <b>"+rk(cl)+"</b>"):"Juega "+esc(pl.name)}</div>`;
+    s+=`<div class="row">${g.players.map(p=>`<div class="pan ${p.id===pl.id?"me":""}">${esc(p.name)}<br>${backFan(g.hands[p.id].length)}</div>`).join("")}</div>`;
+    s+=`<div class="pan">Pila: <b>${g.pile.length}</b> cartas boca abajo${stack(g.pile.length)}<div class="mut">${g.last?esc(nm(g,g.last.by))+" dice que jugó "+g.last.n+" carta(s) de <b>"+rk(g.last.claim)+"</b>":"Pila vacía"}</div>`;
+    if(g.rev)s+=`<div class="mut">Cartas reveladas (se decía ${rk(g.rev.claim)}):</div><div class="hand">${g.rev.cs.map(c=>card(c)).join("")}</div>`;
+    s+=`</div><div class="pan ${my?"me":""}"><b>Tu mano</b>${fan(hand(h,me),{sel,act:"u_s",owner:me})}`;
+    if(my&&!g.over){s+=pend?`<button data-a="accept">Aceptar (gana ${esc(nm(g,g.last.by))})</button> `:`<button data-a="play" data-p="${esc(JSON.stringify(sel))}" ${sel.length?"":"disabled"}>Jugar ${sel.length} como ${rk(cl)}</button> `;if(g.last)s+=`<button class="sec" data-a="challenge">¡Mentiroso!</button>`}
+    s+=`</div><details><summary>Reglas</summary><div class="mut">Se reparten las 40 cartas españolas. Por turno se juegan de 1 a 4 cartas boca abajo, diciendo que son del número que toca (1, 2, 3… 7, Sota, Caballo, Rey y vuelve a empezar). El siguiente jugador puede desafiar con “¡Mentiroso!”: si alguna carta no era la dicha, miente y recoge toda la pila; si decía la verdad, recoge la pila quien desafió. Quien recoge empieza el siguiente turno. Gana quien se queda sin cartas sin ser descubierto.</div></details>`;
+    return s+`<div class="mut">${(g.log||[]).map(esc).join("<br>")}</div>`}
+},
+escoba:{name:"Escoba",icon:"🧹",counts:[2,3,4],opts:[{k:"goal",t:"Puntos para ganar",v:[15,21]}],
+  init(pl,o){const g={players:pl,goal:+o.goal||15,score:{},dealer:pl.length-1,round:0,over:null,log:[],esc:{},caps:{},hands:{}};pl.forEach(p=>g.score[p.id]=0);esRound(g);return g},
+  turnOf:g=>g.over?null:g.players[g.turn].id,
+  act(g,me,a,p){if(g.over)return"La partida terminó";const pl=g.players[g.turn];if(pl.id!==me)return"No es tu turno";
+    if(a!=="play")return"Acción inválida";const{c,t}=p,h=g.hands[me];if(!h.includes(c))return"Elegí una carta de tu mano";
+    if(new Set(t).size!==t.length||!t.every(x=>g.table.includes(x)))return"Selección inválida";
+    if(t.length){if(t.reduce((s,x)=>s+ev(x),ev(c))!==15)return"Las cartas deben sumar 15"}
+    else if(combos(g.table,15-ev(c)).length)return"Si podés capturar con esa carta, estás obligado a hacerlo";
+    h.splice(h.indexOf(c),1);
+    if(t.length){g.table=g.table.filter(x=>!t.includes(x));g.caps[me].push(c,...t);g.last=me;
+      const fin=!g.deck.length&&g.players.every(q=>!g.hands[q.id].length);
+      if(!g.table.length&&!fin){g.esc[me]++;lg(g,"🧹 ¡Escoba de "+pl.name+"!")}else lg(g,pl.name+" capturó "+(t.length+1)+" cartas")}
+    else{g.table.push(c);lg(g,pl.name+" dejó una carta en la mesa")}
+    g.turn=(g.turn+1)%g.players.length;
+    if(g.players.every(q=>!g.hands[q.id].length)){if(g.deck.length)deal(g);else endRound(g)}},
+  ui(U,a,p){if(a==="u_c")U.c=U.c===p?null:p;else{U.t=U.t||[];const i=U.t.indexOf(p);if(i<0)U.t.push(p);else U.t.splice(i,1)}},
+  view(g,me,U){const pl=g.players[g.turn],my=pl.id===me,h=g.hands[me]||[],t=(U.t||[]).filter(x=>g.table.includes(x)),c=h.includes(U.c)?U.c:null,sum=c?t.reduce((s,x)=>s+ev(x),ev(c)):0;
+    let s=g.over?`<div class="pan win">🏆 ¡Ganó ${esc(nm(g,g.over))}!</div>`:`<div class="pan banner ${my?"go":""}">${my?"Tu turno: elegí una carta de tu mano y las de la mesa que sumen 15 con ella (o ninguna para dejarla)":"Juega "+esc(pl.name)}</div>`;
+    s+=`<div class="row">${g.players.map(p=>`<div id="sc-${p.id}" class="pan ${p.id===pl.id?"me":""}">${esc(p.name)}<br><span class="mut">${g.score[p.id]} pts · 🧹${g.esc[p.id]} · ${g.caps[p.id].length} cartas</span>${p.id!==me?"<br>"+backFan(g.hands[p.id].length):""}</div>`).join("")}</div>`;
+    s+=`<div id="tbl" class="pan"><b>Mesa</b> <span class="mut">(mazo: ${g.deck.length})</span><div class="hand">${g.table.map(x=>card(x,t.includes(x)?"sel":"","u_t")).join("")}</div></div>`;
+    s+=`<div class="pan ${my?"me":""}"><b>Tu mano</b>${fan(hand(h,me),{sel:[c],act:"u_c",owner:me})}`;
+    if(my&&c&&!g.over)s+=`<div class="mut">Suma: ${sum} / 15 (sota 8, caballo 9, rey 10)</div><button data-a="play" data-p="${esc(JSON.stringify({c,t}))}">${t.length?"Capturar":"Dejar en la mesa"}</button>`;
+    s+=`</div>`;if(g.rs)s+=`<details><summary>Puntos de la última ronda</summary><div class="mut">${g.rs.map(esc).join("<br>")}</div></details>`;
+    s+=`<details><summary>Reglas</summary><div class="mut">Baraja española de 40 cartas. Se reparten 3 a cada jugador y 4 a la mesa. En tu turno jugás una carta: si ella más cartas de la mesa suman 15, las capturás (es obligatorio capturar si se puede). Si vaciás la mesa, hacés escoba (+1, salvo en la última jugada). Al acabarse las manos se reparten 3 más; al final las cartas de la mesa son de quien capturó último. Puntos por ronda: más cartas, más oros, primera (setenta), siete de oros y cada escoba.</div></details>`;
+    return s+`<div class="mut">${(g.log||[]).map(esc).join("<br>")}</div>`}
+}};
+
+/* ================= PLATAFORMA: local / online ================= */
+let R={},UI={},db=null,me=null;
+const toast=t=>{const e=$("#toast");e.textContent=t;e.style.display="block";clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display="none",2600)};
+const err=t=>{const e=$("#err");if(e)e.textContent=t;else toast(t)};
+const opts=()=>Object.fromEntries([...document.querySelectorAll(".op")].map(e=>[e.dataset.k,e.value]));
+function goHome(){if(R.unsub)R.unsub();R={};UI={};ORD={};animKey=-1;busy=false;
+  $("#app").innerHTML=`<p class="mut">Elegí un juego</p><div class="row">`+Object.entries(GAMES).map(([k,g])=>`<button class="big ${g.soon?"sec":""}" data-a="pick" data-p='"${k}"' ${g.soon?"disabled":""}>${g.icon} ${g.name}${g.soon?" · pronto":""}</button>`).join("")+`</div>`}
+function setup(){const G=GAMES[R.game];
+  $("#app").innerHTML=`<button class="sec" data-a="home">← Juegos</button><h2>${G.icon} ${G.name}</h2>
+  <div class="pan"><label>Modo <select id="m"><option value="local">📱 Local (mismo dispositivo)</option><option value="online">🌐 Online (cada uno en su dispositivo)</option></select></label><br>
+  <label>Jugadores <select id="n">${G.counts.map(n=>`<option value="${n}">${(G.cl&&G.cl[n])||n}</option>`).join("")}</select></label>
+  ${(G.opts||[]).map(o=>`<br><label>${o.t} <select class="op" data-k="${o.k}">${o.v.map(v=>`<option>${v}</option>`).join("")}</select></label>`).join("")}</div>
+  ${G.note?`<p class="mut">${G.note}</p>`:""}<div id="loc" class="pan"></div>
+  <div id="onl" class="pan" style="display:none"><input id="nm1" placeholder="Tu nombre" maxlength="14"><br>
+  <label>Sala <select id="pub"><option value="1">Pública (aparece en la lista)</option><option value="0">Privada (solo con el código)</option></select></label><br>
+  <button data-a="create">Crear sala</button><hr><input id="code" placeholder="Código de sala" maxlength="4" style="text-transform:uppercase"> <button data-a="joinc">Entrar con código</button><hr>
+  <button class="sec" data-a="list">Buscar salas públicas</button><div id="pubs"></div><p id="err" class="mut"></p></div>`;
+  const f=()=>{const n=+$("#n").value,on=$("#m").value==="online";$("#loc").style.display=on?"none":"";$("#onl").style.display=on?"":"none";
+    $("#loc").innerHTML=Array.from({length:n},(_,i)=>`<input class="ln" placeholder="Jugador ${i+1}" maxlength="14">`).join("<br>")+`<br><button data-a="startlocal">Empezar</button>`};
+  $("#m").onchange=f;$("#n").onchange=f;f()}
+function startlocal(){const pl=[...document.querySelectorAll(".ln")].map((e,i)=>({id:"p"+i,name:e.value.trim()||"Jugador "+(i+1)}));
+  R={game:R.game,mode:"local",S:GAMES[R.game].init(pl,opts())};UI={};ORD={};animKey=-1;render()}
+async function conn(){if(db)return true;
+  if(FIREBASE_CONFIG.apiKey==="PEGA_AQUI"){err("Para jugar online falta configurar Firebase en FIREBASE_CONFIG.");return false}
+  try{firebase.initializeApp(FIREBASE_CONFIG);db=firebase.firestore();me=(await firebase.auth().signInAnonymously()).user.uid;return true}catch(e){err("No se pudo conectar con Firebase.");return false}}
+const myName=()=>($("#nm1")&&$("#nm1").value.trim())||"Jugador";
+async function create(){if(!await conn())return;const code=Array.from({length:4},()=>"ABCDEFGHJKLMNPQRSTUVWXYZ"[Math.random()*24|0]).join(""),g=R.game;
+  try{await db.collection("games").doc(code).set({game:g,opts:opts(),n:+$("#n").value,pub:$("#pub").value==="1",started:false,host:me,players:[{id:me,name:myName()}],S:null,t:Date.now()});R={game:g,mode:"online",code};ORD={};animKey=-1;watch()}catch(e){err("No se pudo crear la sala. Revisá las reglas de Firestore.")}}
+async function join(code,name){if(!await conn())return;code=String(code).trim().toUpperCase();const ref=db.collection("games").doc(code);
+  try{await db.runTransaction(async tx=>{const s=await tx.get(ref);if(!s.exists||!s.data().game)throw"No existe esa sala";const r=s.data();
+    if(!r.players.some(p=>p.id===me)){if(r.started||r.players.length>=r.n)throw"La sala está llena o ya empezó";r.players.push({id:me,name});if(r.players.length===r.n){r.S=GAMES[r.game].init(r.players,r.opts);r.started=true}}tx.set(ref,r)});
+    R={mode:"online",code};ORD={};animKey=-1;watch()}catch(e){err(String(e&&e.message||e))}}
+async function list(){if(!await conn())return;
+  try{const q=await db.collection("games").where("pub","==",true).get(),rows=[];q.forEach(d=>{const r=d.data();if(r.game&&GAMES[r.game]&&!r.started&&r.players.length<r.n)rows.push(`<div class="row"><span>${GAMES[r.game].icon} ${GAMES[r.game].name} · ${esc(r.players[0].name)} · ${r.players.length}/${r.n}</span><button data-a="joinp" data-p='"${d.id}"'>Unirme</button></div>`)});
+    $("#pubs").innerHTML=rows.join("")||`<p class="mut">No hay salas públicas abiertas.</p>`}catch(e){err("No se pudo buscar salas.")}}
+function watch(){if(R.unsub)R.unsub();R.unsub=db.collection("games").doc(R.code).onSnapshot(s=>{R.room=s.data();if(R.room)R.game=R.room.game;render()})}
+function show(S,who){const G=GAMES[R.game];$("#app").innerHTML=`<button class="sec" data-a="home">Salir</button>`+G.view(S,who,UI)+(S.over?`<button data-a="home">Volver al inicio</button>`:"");if(G.fx)G.fx(S,who)}
+function render(){if(!R.mode)return;const G=GAMES[R.game];
+  if(R.mode==="online"){const r=R.room;if(!r){$("#app").textContent="Conectando…";return}
+    if(!r.started){$("#app").innerHTML=`<h2>Sala ${esc(R.code)}</h2><p>${r.pub?"Pública":"Privada"} · ${GAMES[r.game].icon} ${GAMES[r.game].name} · ${r.players.length}/${r.n} jugadores</p><p class="mut">Compartí el código <b>${esc(R.code)}</b>. El juego empieza cuando se completa la sala.</p><div class="pan">${r.players.map(p=>esc(p.name)).join("<br>")}</div><button class="sec" data-a="home">Salir</button>`;return}
+    return show(r.S,me)}
+  const S=R.S,actor=G.turnOf(S)||S.players[0].id;
+  if(!S.over&&actor!==R.prev){R.prev=actor;R.veil=true}
+  if(R.veil&&!S.over){$("#app").innerHTML=`<div class="pan win">Turno de ${esc(nm(S,actor))}</div><p>Pasale el dispositivo a <b>${esc(nm(S,actor))}</b>. Los demás, ¡no miren! 👀</p><button data-a="see">Ver mi mano</button><div class="mut">${(S.log||[]).map(esc).join("<br>")}</div>`;return}
+  show(S,actor)}
+async function dispatch(a,p){const G=GAMES[R.game];
+  if(R.mode==="local"){const g=clone(R.S),e=G.act(g,G.turnOf(g),a,p);if(e){toast(e);return render()}R.S=g;UI={};return render()}
+  const g=clone(R.room.S),e=G.act(g,me,a,p);if(e){toast(e);return render()}UI={};
+  try{await db.collection("games").doc(R.code).update({S:g})}catch(x){toast("Error de conexión")}}
+$("#app").onclick=e=>{if(dragged||busy)return;const t=e.target.closest("[data-a]");if(!t||t.disabled)return;const a=t.dataset.a,p=t.dataset.p?JSON.parse(t.dataset.p):null;
+  const m={home:goHome,pick:k=>{R={game:k};setup()},create,joinc:()=>join($("#code").value,myName()),joinp:c=>join(c,myName()),list,startlocal,see:()=>{R.veil=false;render()}};
+  if(m[a])return m[a](p);
+  if(a.startsWith("u_")){const r=GAMES[R.game].ui(UI,a,p,R.mode==="online"?R.room.S:R.S,actorId());if(r&&r.go)return go(r.go[0],r.go[1]);return render()}
+  go(a,p)};
+goHome();
+</script></body></html>
