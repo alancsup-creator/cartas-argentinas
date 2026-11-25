@@ -45,7 +45,7 @@ button:disabled{opacity:.5;cursor:default}.big{font-size:18px;padding:16px 20px;
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script>
 // Pegá acá la configuración de Firebase (solo hace falta para el modo online)
-const FIREBASE_CONFIG={apiKey:"PEGA_AQUI",authDomain:"PEGA_AQUI",projectId:"PEGA_AQUI",appId:"PEGA_AQUI"};
+const FIREBASE_CONFIG={apiKey:"AIzaSyByKppVKNL8DulWXUcJWMUbw5EV7-Z16vg",authDomain:"playing-cards-4d504.firebaseapp.com",projectId:"playing-cards-4d504",appId:"1:224283854954:web:a070a69401aa0f59ed6213"};
 const $=s=>document.querySelector(s),clone=o=>JSON.parse(JSON.stringify(o));
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const shuffle=a=>{for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
