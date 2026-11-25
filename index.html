@@ -45,7 +45,7 @@ button:disabled{opacity:.5;cursor:default}.big{font-size:18px;padding:16px 20px;
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script>
 // Pegá acá la configuración de Firebase (solo hace falta para el modo online)
-const FIREBASE_CONFIG={apiKey:"AIzaSyByKppVKNL8DulWXUcJWMUbw5EV7-Z16vg",authDomain:"playing-cards-4d504.firebaseapp.com",projectId:"playing-cards-4d504",appId:"1:224283854954:web:a070a69401aa0f59ed6213"};
+const FIREBASE_CONFIG={apiKey:"PEGA_AQUI",authDomain:"PEGA_AQUI",projectId:"PEGA_AQUI",appId:"PEGA_AQUI"};
 const $=s=>document.querySelector(s),clone=o=>JSON.parse(JSON.stringify(o));
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const shuffle=a=>{for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
@@ -244,9 +244,17 @@ function tAct(g,me,a,p){const h=g.h,seat=g.players.findIndex(q=>q.id===me);
     return"Acción inválida"}
   if(b.k==="V"){
     if(a==="q"||a==="n"){
-      if(a==="q"){const m=[-1,-1];h.seats.forEach(s=>m[h.side[s]]=Math.max(m[h.side[s]],envPts(h.orig[s])));const w=m[0]>m[1]?0:m[1]>m[0]?1:h.manoSide;
-        gain(g,h,w,b.ch.includes("F")?falta(g,h):b.ch.reduce((x,c)=>x+(c==="E"?2:3),0),"🗣️ Envido: "+m[w]+" tantos")}
-      else gain(g,h,h.side[b.by],b.ch.slice(0,-1).reduce((x,c)=>x+(c==="E"?2:3),0)+1,"Envido no querido");
+      if(a==="q"){const lines=[];let best=-1,bs=null;
+        h.seats.forEach(x=>{const p=envPts(h.orig[x]),nx=g.players[x].name;
+          if(bs===null){best=p;bs=x;lines.push("🗣️ "+nx+": «"+p+" tantos»")}
+          else if(p>best){best=p;bs=x;lines.push("🗣️ "+nx+": «"+p+"»")}
+          else lines.push("🗣️ "+nx+": «Son buenas»")});
+        const w=h.side[bs],lab=b.ch.map(c=>LBL[c]).join(" + "),txt="🏆 "+sname(g,h,w)+(h.seats.filter(q=>h.side[q]===w).length>1?" ganan":" gana")+" el envido ("+lab+") con "+best+" tantos";
+        lines.forEach(l=>hlg(g,l));h.envRes={lines,txt};
+        gain(g,h,w,b.ch.includes("F")?falta(g,h):b.ch.reduce((x,c)=>x+(c==="E"?2:3),0),txt)}
+      else{const pr=sname(g,h,h.side[b.by]);hlg(g,"🙅 "+who+": «No quiero» el envido");
+        const txt="Envido no querido: "+(pr.includes(" y ")?"ganan ":"gana ")+pr;h.envRes={lines:["🙅 "+who+": «No quiero»"],txt};
+        gain(g,h,h.side[b.by],b.ch.slice(0,-1).reduce((x,c)=>x+(c==="E"?2:3),0)+1,txt)}
       h.envDone=true;h.bid=null;if(h.pend){h.bid=h.pend;h.pend=null;h.turn=h.bid.to}else h.turn=h.ret;return}
     if(a==="E"||a==="R"||a==="F"){if(!chainOK(b.ch,a))return"No podés subir con eso";h.bid={k:"V",ch:b.ch.concat(a),by:seat,to:respSeat(h,seat)};h.turn=h.bid.to;hlg(g,"🗣️ "+who+": "+LBL[a]);return}
     return"Respondé quiero, no quiero o subí el envido"}
@@ -305,6 +313,7 @@ truco:{name:"Truco",icon:"🧉",counts:[2,3,4,6],cl:{2:"2 · Mano a mano",3:"3 �
     s+=`<div id="tbl" class="pan"><b>Mesa</b> <span class="mut">· la mano vale ${h.level?h.level+1:1} · ${h.pica?"pica-pica: "+tn(h.seats[0])+" vs "+tn(h.seats[1]):"juegan "+h.seats.map(tn).join(", ")}${g.mode==="3"?" · gallo: "+tn(g.gallo):""}</span>`
       +rows.map((t,i)=>`<div class="hand" style="align-items:flex-end"><span class="mut">Baza ${i+1}</span>${h.seats.filter(st=>t.cs[st]!==undefined).map(st=>`<div style="text-align:center"><small>${tn(st)}</small>${card(t.cs[st])}</div>`).join("")}${t.w===-1?`<span class="mut">🤝 parda</span>`:t.w!==null?`<span class="mut">✔ ${esc(sname(g,h,t.w))}</span>`:""}</div>`).join("")
       +`<div class="mut">${h.seats.filter(x=>x!==seat).map(x=>tn(x)+" "+backFan(h.cards[x].length)).join(" &nbsp; ")}</div></div>`;
+    if(h.envRes)s+=`<div class="pan"><b>Envido</b><div class="mut">${h.envRes.lines.map(esc).join("<br>")}</div><b>${esc(h.envRes.txt)}</b></div>`;
     if(g.wait){const w=g.wait;s+=`<div class="pan"><b>Resumen de la mano${w.pica?" (pica-pica: "+esc(w.pica)+")":""}</b><div class="mut">${w.lines.map(esc).join("<br>")}</div></div><button data-a="next">${w.final?"Finalizar partida":w.chico?"Siguiente chico":"Siguiente mano"}</button>`;return s}
     if(inH){let ac="";const B=(a,t,c)=>`<button class="${c||""}" data-a="${a}">${t}</button> `;
       if(my&&!g.over){
